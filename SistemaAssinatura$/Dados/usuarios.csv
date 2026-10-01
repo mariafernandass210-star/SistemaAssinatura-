@@ -1,0 +1,8 @@
+﻿"id";"nome";"email";"codigo";"cargo";"ativo";"criado_em"
+"1";"Admin";"admin@exemplo.local";"admin123";"ADMINISTRADOR";"true";"2026-09-29 10:52:14"
+"2";"João";"joao@exemplo.local";"joao123";"TERCEIRO";"true";"2026-09-29 10:52:14"
+"3";"Maria";"maria@exemplo.local";"maria123";"LIDER";"true";"2026-09-29 10:52:14"
+"4";"Carlos";"carlos@exemplo.local";"carlos123";"SUPERVISOR";"true";"2026-09-29 10:52:14"
+"5";"Ana";"ana@exemplo.local";"ana123";"COORDENADOR";"true";"2026-09-29 10:52:14"
+"6";"Julia";"julia@exemplo.local";"julia123";"COORDENADOR";"true";"2026-09-29 15:56:01"
+"7";"Leon";"leon@exemplo.local";"leon123";"TERCEIRO";"true";"2026-09-30 16:52:53"

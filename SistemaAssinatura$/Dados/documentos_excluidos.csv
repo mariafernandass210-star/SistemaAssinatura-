@@ -1,0 +1,3 @@
+﻿"id";"numero";"pessoa_relacionada";"data_documento";"arquivo_pdf";"status";"etapa_atual_id";"criado_por";"criado_em";"finalizado_em";"excluido_por";"excluido_em";"motivo_exclusao"
+"3";"8237";"Leonardo";"2026-09-29";"\\clx01fs\SistemaAssinatura$\PDFs\8237_3.pdf";"EM_APROVACAO";"10";"1";"2026-09-29 11:17:56";"";"Admin";"2026-09-30 11:34:46";"Exclusão administrativa"
+"7";"1819";"Leon";"2026-09-30";"\\clx01fs\SistemaAssinatura$\PDFs\1819_7.pdf";"FINALIZADO";"28";"1";"2026-09-30 16:53:15";"2026-09-30 16:56:06";"Admin";"2026-10-01 07:45:28";"Exclusão administrativa"
