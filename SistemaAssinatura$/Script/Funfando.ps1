@@ -1,4 +1,4 @@
-﻿﻿#CERTO4
+#CERTO4
 
 #requires -Version 5.1
 <#
@@ -32,14 +32,21 @@ catch { }
 
 $script:AppName = "Workflow Documental"
 
-# Ambiente local de teste. Não usa a pasta compartilhada de produção.
-$scriptDir = $PSScriptRoot
-if ([string]::IsNullOrWhiteSpace($scriptDir)) {
-    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$script:Dir = $PSScriptRoot
+
+if ([string]::IsNullOrWhiteSpace($script:Dir)) {
+    if (
+        $null -ne $psISE -and
+        $null -ne $psISE.CurrentFile -and
+        -not [string]::IsNullOrWhiteSpace($psISE.CurrentFile.FullPath)
+    ) {
+        $script:Dir = Split-Path -Parent $psISE.CurrentFile.FullPath
+    }
+    else {
+        throw "Não foi possível identificar a pasta do script. Salve o arquivo .ps1 e execute-o por F5 no PowerShell ISE."
+    }
 }
-if ([string]::IsNullOrWhiteSpace($scriptDir)) {
-    $scriptDir = (Get-Location).Path
-}
+
 $script:RootPath = '\\clx01fs\SistemaAssinatura$'
 
 # Subpastas criadas automaticamente pelo script, se houver permissão.
@@ -165,67 +172,115 @@ function Convert-ToBoolean {
     return ([string]$Value).ToLowerInvariant() -eq "true"
 }
 
+function Send-CorporateEmail {
+   param (
+       [string]$ToEmail,
+       [string]$Subject,
+       [string]$Body
+   )
+   if ([string]::IsNullOrWhiteSpace($ToEmail)) {
+       [System.Windows.Forms.MessageBox]::Show("O e-mail de destino está vazio!", "Erro de Envio")
+       return
+   }
+   try {
+       $smtpServer = "smtp.office365.com"
+       $smtpPort = 587
+       $msg = New-Object System.Net.Mail.MailMessage
+       $msg.From = "emariafss@castrolandaservices.coop.br"
+       $msg.To.Add($ToEmail)
+       $msg.Subject = $Subject
+       $msg.Body = $Body
+       $msg.IsBodyHtml = $false
+       $client = New-Object System.Net.Mail.SmtpClient($smtpServer, $smtpPort)
+       $client.EnableSsl = $true
+       $client.UseDefaultCredentials = $false
+       # IMPORTANTE: Substitui "tua_senha_corporativa" pela senha real que usas para entrar no teu e-mail da empresa
+       $password = "tua_senha_corporativa"
+       $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+       $client.Credentials = New-Object System.Net.NetworkCredential("emariafss@castrolandaservices.coop.br", $securePassword)
+       $client.Send($msg)
+       $msg.Dispose()
+       [System.Windows.Forms.MessageBox]::Show("E-mail enviado com sucesso para: $ToEmail", "Sucesso SMTP")
+   }
+   catch {
+       [System.Windows.Forms.MessageBox]::Show("Falha ao enviar para $ToEmail. Erro: $($_.Exception.Message)", "Erro SMTP")
+   }
+}
+
 # =============================================================================
 # ARMAZENAMENTO CSV
 # =============================================================================
-
-function Initialize-Storage {
-    foreach ($folder in @(
-        $script:RootPath,
-        $script:DataPath,
-        $script:PdfPath
-        $script:RecycleBinPath
-    )) {
-        if (-not (Test-Path -Path $folder)) {
-            New-Item -Path $folder -ItemType Directory -Force | Out-Null
-        }
-    }
-
-    if (-not (Test-Path -Path $script:UsersFile)) {
-        Set-Content -Path $script:UsersFile -Value "id;nome;email;codigo;cargo;ativo;criado_em" -Encoding UTF8
-    }
-
-    if (-not (Test-Path -Path $script:DocumentsFile)) {
-        Set-Content -Path $script:DocumentsFile -Value "id;numero;pessoa_relacionada;data_documento;arquivo_pdf;status;etapa_atual_id;criado_por;criado_em;finalizado_em" -Encoding UTF8
-    }
-
-    if (-not (Test-Path -Path $script:StepsFile)) {
-        Set-Content -Path $script:StepsFile -Value "id;documento_id;ordem;tipo;responsavel_id;status;iniciado_em;concluido_em" -Encoding UTF8
-    }
-
-    if (-not (Test-Path -Path $script:HistoryFile)) {
-        Set-Content -Path $script:HistoryFile -Value "id;documento_id;usuario_id;tipo_evento;descricao;criado_em" -Encoding UTF8
-    }
-
-    if (-not (Test-Path -Path $script:NotificationsFile)) {
-        Set-Content -Path $script:NotificationsFile -Value "id;usuario_id;documento_id;mensagem;lida;criado_em" -Encoding UTF8
-        if (-not (Test-Path -Path $script:DeletedDocumentsFile)) {
-    Set-Content `
-        -Path $script:DeletedDocumentsFile `
-        -Value "id;numero;pessoa_relacionada;data_documento;arquivo_pdf;status;etapa_atual_id;criado_por;criado_em;finalizado_em;excluido_por;excluido_em;motivo_exclusao" `
-        -Encoding UTF8
-}
-
-if (-not (Test-Path -Path $script:RecycleBinFile)) {
-    Set-Content `
-        -Path $script:RecycleBinFile `
-        -Value "id;documento_id;numero;arquivo_original;arquivo_lixeira;excluido_por;excluido_em;excluir_definitivamente_em;motivo;status" `
-        -Encoding UTF8
-}
-    }
-    if (-not (Test-Path -Path $script:DeletedDocumentsFile)) {
-    Set-Content `
-        -Path $script:DeletedDocumentsFile `
-        -Value "id;numero;pessoa_relacionada;data_documento;arquivo_pdf;status;etapa_atual_id;criado_por;criado_em;finalizado_em;excluido_por;excluido_em;motivo_exclusao" `
-        -Encoding UTF8
-}
-
-if (-not (Test-Path -Path $script:RecycleBinFile)) {
-    Set-Content `
-        -Path $script:RecycleBinFile `
-        -Value "id;documento_id;numero;arquivo_original;arquivo_lixeira;excluido_por;excluido_em;excluir_definitivamente_em;motivo;status" `
-        -Encoding UTF8
-}
+function Initialize-DemoUsers {
+   $users = Get-Users
+   $myEmail = "emariafss@castrolandaservice.coop.br"
+   $hasMyUser = $false
+   foreach ($u in $users) {
+       if ($u.email.ToLowerInvariant() -eq $myEmail) {
+           $hasMyUser = $true
+           break
+       }
+   }
+   if ($users.Count -gt 0 -and $hasMyUser) {
+       return
+   }
+   $now = Get-NowText
+   $users = @(
+       [pscustomobject]@{
+           id        = 1
+           nome      = "Maria"
+           email     = $myEmail = "emariafss@castrolandaservices.coop.br"
+           codigo    = "123456"
+           cargo     = "ADMINISTRADOR"
+           ativo     = "true"
+           criado_em = $now
+       },
+       [pscustomobject]@{
+           id        = 2
+           nome      = "Admin"
+           email     = "admin@exemplo.local"
+           codigo    = "admin123"
+           cargo     = "ADMINISTRADOR"
+           ativo     = "true"
+           criado_em = $now
+       },
+       [pscustomobject]@{
+           id        = 3
+           nome      = "João"
+           email     = "joao@exemplo.local"
+           codigo    = "joao123"
+           cargo     = "TERCEIRO"
+           ativo     = "true"
+           criado_em = $now
+       },
+       [pscustomobject]@{
+           id        = 4
+           nome      = "Maria Teste"
+           email     = "maria@exemplo.local"
+           codigo    = "maria123"
+           cargo     = "LIDER"
+           ativo     = "true"
+           criado_em = $now
+       },
+       [pscustomobject]@{
+           id        = 5
+           nome      = "Carlos"
+           email     = "carlos@exemplo.local"
+           codigo    = "carlos123"
+           cargo     = "SUPERVISOR"
+           ativo     = "true"
+           criado_em = $now
+       },
+       [pscustomobject]@{
+           id        = 6
+           nome      = "Ana"
+           email     = "ana@exemplo.local"
+           codigo    = "ana123"
+           cargo     = "COORDENADOR"
+           ativo     = "true"
+           criado_em = $now
+       }
+   )
+   Save-CsvRows -Rows $users -FilePath $script:UsersFile
 }
 
 function Get-CsvRows {
@@ -431,51 +486,88 @@ function Initialize-DemoUsers {
 # HISTÓRICO E NOTIFICAÇÕES
 # =============================================================================
 
-function Add-History {
-    param(
-        [int]$DocumentId,
-        [int]$UserId,
-        [string]$EventType,
-        [string]$Description
-    )
-
-    $history = Get-History
-
-    $newEntry = [pscustomobject]@{
-        id           = Get-NextId -Rows $history
-        documento_id = $DocumentId
-        usuario_id   = $UserId
-        tipo_evento  = $EventType
-        descricao    = $Description
-        criado_em    = Get-NowText
-    }
-
-    $history = @($history) + @($newEntry)
-
-    Save-CsvRows -Rows $history -FilePath $script:HistoryFile
-}
-
 function Add-Notification {
-    param(
+
+   param(
+
         [int]$UserId,
+
         [int]$DocumentId,
-        [string]$Message
-    )
 
-    $notifications = Get-Notifications
+        [string]$Message,
 
-    $newEntry = [pscustomobject]@{
-        id           = Get-NextId -Rows $notifications
-        usuario_id   = $UserId
+        [string]$DirectEmail = ""
+
+   )
+
+   $notifications = Get-Notifications
+
+   $newEntry = [pscustomobject]@{
+
+        id         = Get-NextId -Rows $notifications
+
+        usuario_id = $UserId
+
         documento_id = $DocumentId
-        mensagem     = $Message
-        lida         = "false"
-        criado_em    = Get-NowText
-    }
 
-    $notifications = @($notifications) + @($newEntry)
+        mensagem   = $Message
 
-    Save-CsvRows -Rows $notifications -FilePath $script:NotificationsFile
+        lida       = "false"
+
+        criado_em  = Get-NowText
+
+   }
+
+   $notifications = @($notifications) + @($newEntry)
+
+   Save-CsvRows -Rows $notifications -FilePath $script:NotificationsFile
+
+   # Obtém o utilizador e define o destinatário direto (suportando qualquer domínio da cooperativa)
+
+   $targetUser = Get-UserById -UserId $UserId
+
+   $destinatarioFinal = if (-not [string]::IsNullOrWhiteSpace($DirectEmail)) { $DirectEmail } else { $targetUser.email }
+
+   $subjectText = "Workflow Documental - Nova Pendência (Doc #$DocumentId)"
+
+   $bodyText = "Olá," + [Environment]::NewLine + [Environment]::NewLine +
+
+                "Existe uma nova pendência a aguardar ação no sistema de Workflow Documental:" + [Environment]::NewLine +
+
+                "- ID do Documento: $DocumentId" + [Environment]::NewLine +
+
+                "- Mensagem / Etapa: $Message" + [Environment]::NewLine + [Environment]::NewLine +
+
+                "Por favor, aceda ao sistema para proceder com a análise."
+
+   # Envia exclusivamente para o destinatário final
+
+   if (-not [string]::IsNullOrWhiteSpace($destinatarioFinal)) {
+
+        Send-CorporateEmail -ToEmail $destinatarioFinal -Subject $subjectText -Body $bodyText
+
+   }
+
+}
+ 
+function Add-History {
+   param(
+       [int]$DocumentId,
+       [int]$UserId,
+       [string]$EventType,
+       [string]$Description
+   )
+   $history = Get-History
+   $newEntry = [pscustomobject]@{
+       id           = Get-NextId -Rows $history
+       documento_id = $DocumentId
+       usuario_id   = $UserId
+       tipo_evento  = $EventType
+       descricao    = $Description
+       criado_em    = Get-NowText
+   }
+   $history = @($history) + @($newEntry)
+   Save-CsvRows -Rows $history -FilePath $script:HistoryFile
 }
 
 function Update-NotificationCounter {
@@ -2116,6 +2208,25 @@ function Show-UserManagement {
         [void]$grid.Rows.Add($u.id, $u.nome, $u.email, $u.codigo, $u.cargo, $ativoTxt)
     }
 
+    foreach ($u in (Get-Users)) {
+    $ativoTxt = if ((Convert-ToBoolean -Value $u.ativo)) { "Sim" } else { "Não" }
+    [void]$grid.Rows.Add($u.id, $u.nome, $u.email, $u.codigo, $u.cargo, $ativoTxt)
+}
+
+$script:SelectedUserId = $null
+
+$grid.Add_CellClick({
+    param($sender, $e)
+
+    if ($e.RowIndex -lt 0) {
+        return
+    }
+
+    $script:SelectedUserId = [int]$sender.Rows[$e.RowIndex].Cells["ID"].Value
+})
+
+$script:ContentPanel.Controls.Add($grid)
+
     $script:ContentPanel.Controls.Add($grid)
 
     $script:ContentPanel.Controls.Add((New-AppLabel -Text "ID:" -X 25 -Y 325 -Width 60 -Height 22 -FontSize 9 -Bold $true))
@@ -2186,6 +2297,7 @@ $clearBtn.Tag = [pscustomobject]@{
 
 $clearBtn.Add_Click({
     try {
+        $script:SelectedUserId = $null
         $ctx = $this.Tag
 
         $ctx.IdBox.Clear()
@@ -2202,6 +2314,72 @@ $clearBtn.Add_Click({
 })
 
 $script:ContentPanel.Controls.Add($clearBtn)
+    $editUserBtn = New-AppButton `
+    -Text "EDITAR SELECIONADO" `
+    -X 25 -Y 465 -Width 180 -Height 38 `
+    -BackColor $script:ColorPrimary
+
+    $editUserBtn.Tag = [pscustomobject]@{
+    IdBox       = $idBox
+    NameBox     = $nameBox
+    EmailBox    = $emailBox
+    CodeBox     = $codeBox
+    RoleCombo   = $roleCombo
+    ActiveCheck = $activeCheck
+}
+
+    $editUserBtn.Add_Click({
+    try {
+        if ($null -eq $script:SelectedUserId) {
+            Show-AppMessage -Message "Clique em um usuário da tabela antes de editar." -Icon Warning
+            return
+        }
+
+        $ctx = $this.Tag
+        if ($null -eq $ctx) {
+            throw "O botão Editar está sem os controles no Tag."
+        }
+
+        $selectedUser = Get-UserById -UserId ([int]$script:SelectedUserId)
+        if ($null -eq $selectedUser) {
+            throw "Usuário não encontrado. Atualize a lista."
+        }
+
+        foreach ($campo in @('IdBox', 'NameBox', 'EmailBox', 'CodeBox')) {
+            $controle = $ctx.$campo
+
+            if ($null -eq $controle -or
+                $controle -isnot [System.Windows.Forms.TextBox]) {
+                $tipo = if ($null -eq $controle) {
+                    'nulo'
+                } else {
+                    $controle.GetType().FullName
+                }
+
+                throw "Controle $campo inválido: $tipo"
+            }
+        }
+
+        $ctx.IdBox.Text    = [string]$selectedUser.id
+        $ctx.NameBox.Text  = [string]$selectedUser.nome
+        $ctx.EmailBox.Text = [string]$selectedUser.email
+        $ctx.CodeBox.Text  = [string]$selectedUser.codigo
+
+        $ctx.RoleCombo.SelectedItem = [string]$selectedUser.cargo
+        $ctx.ActiveCheck.Checked =
+            (Convert-ToBoolean -Value $selectedUser.ativo)
+
+        $ctx.NameBox.Focus()
+    }
+    catch {
+        Show-AppMessage `
+            -Message "Erro ao editar usuário: $($_.Exception.Message)" `
+            -Icon Error
+    }
+})
+
+$script:ContentPanel.Controls.Add($editUserBtn)
+
 
     $saveUserBtn = New-AppButton -Text "SALVAR / ATUALIZAR" -X 435 -Y 410 -Width 170 -Height 38 -BackColor $script:ColorSuccess
     $saveUserBtn.Tag = [pscustomobject]@{
@@ -2253,6 +2431,7 @@ $script:ContentPanel.Controls.Add($clearBtn)
             Show-AppMessage -Message $_.Exception.Message -Icon Error
         }
     })
+
     $script:ContentPanel.Controls.Add($saveUserBtn)
 
     $deleteUserBtn = New-AppButton -Text "EXCLUIR SELECIONADO" -X 615 -Y 410 -Width 180 -Height 38 -BackColor $script:ColorDanger
@@ -2287,11 +2466,11 @@ $script:ContentPanel.Controls.Add($clearBtn)
         }
     })
     $script:ContentPanel.Controls.Add($deleteUserBtn)
-}
+    }
 
 
 
-function Get-DeletedDocuments {
+    function Get-DeletedDocuments {
     return @(Get-CsvRows -FilePath $script:DeletedDocumentsFile)
 }
 
@@ -3091,6 +3270,9 @@ function Show-RecycleBin {
     $grid.AutoSizeColumnsMode = [System.Windows.Forms.DataGridViewAutoSizeColumnsMode]::Fill
     $grid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::FullRowSelect
     $grid.MultiSelect = $false
+    $grid.ReadOnly = $true
+    $grid.EditMode = [System.Windows.Forms.DataGridViewEditMode]::EditProgrammatically
+
     Set-AppGridLook -Grid $grid
 
     foreach ($columnName in @(
@@ -3158,8 +3340,73 @@ $restoreButton.Tag = $grid
 
     $script:ContentPanel.Controls.Add($grid)
     $script:ContentPanel.Controls.Add($restoreButton)
+
+    
 }
 
+function Remove-RecycleBinItemIfExpired {
+    param([int]$RecycleId)
+ 
+    if ($script:CurrentUser.cargo -ne "ADMINISTRADOR") {
+        throw "Apenas administradores podem excluir itens da lixeira."
+    }
+ 
+    $recycleItems = @(Get-RecycleBinItems)
+    $recycleItem = $recycleItems |
+        Where-Object { [int]$_.id -eq $RecycleId } |
+        Select-Object -First 1
+ 
+    if ($null -eq $recycleItem) {
+        throw "Item não encontrado na lixeira."
+    }
+ 
+    $deleteAfter = Convert-ToDateSafe `
+        -Value $recycleItem.excluir_definitivamente_em
+ 
+    if ($null -eq $deleteAfter) {
+        throw "A data de exclusão definitiva do item é inválida."
+    }
+ 
+    if ((Get-Date) -lt $deleteAfter) {
+        return "NOT_EXPIRED"
+    }
+ 
+    # Remove o PDF da lixeira somente após o prazo.
+    if (
+        -not [string]::IsNullOrWhiteSpace($recycleItem.arquivo_lixeira) -and
+        (Test-Path -LiteralPath $recycleItem.arquivo_lixeira)
+    ) {
+        Remove-Item `
+            -LiteralPath $recycleItem.arquivo_lixeira `
+            -Force `
+            -ErrorAction Stop
+    }
+ 
+    # Remove somente o registro da lixeira selecionado.
+    $remainingRecycleItems = @(
+        $recycleItems | Where-Object {
+            [int]$_.id -ne $RecycleId
+        }
+    )
+ 
+    Save-CsvRows `
+        -Rows $remainingRecycleItems `
+        -FilePath $script:RecycleBinFile
+ 
+    # Remove o registro arquivado correspondente, se houver.
+    $deletedDocuments = @(Get-DeletedDocuments)
+    $remainingDeletedDocuments = @(
+        $deletedDocuments | Where-Object {
+            [int]$_.id -ne [int]$recycleItem.documento_id
+        }
+    )
+ 
+    Save-CsvRows `
+        -Rows $remainingDeletedDocuments `
+        -FilePath $script:DeletedDocumentsFile
+ 
+    return "DELETED"
+}
 
 function New-NavSection {
     param([string]$Text)
@@ -3888,7 +4135,6 @@ function Get-RecycleBinDaysRemaining {
 # =============================================================================
 
 try {
-    Initialize-Storage
     Initialize-DemoUsers
 
     do {
